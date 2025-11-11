@@ -9,29 +9,20 @@ body {
   background: #333;
   color: #fff;
   padding: 6px 14px;
-}
-.topbar h1 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.topbar {
-  background: #333;
-  color: #fff;
-  padding: 6px 14px;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-
+.topbar h1 {
+  margin: 0;
+  font-size: 16px;
+}
 
 #experiment-clock {
   font-weight: bold;
   font-size: 14px;
 }
-
-
 
 .layout {
   display: grid;
@@ -54,6 +45,14 @@ body {
   gap: 20px;
 }
 
+/* New stacked column for scores + recommendations */
+.side-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 180px;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(10, 36px);
@@ -72,16 +71,18 @@ body {
   font-size: 10px;
 }
 
-/* Neutral pastel colors for tasks */
-.cell.subtask-H { background: #E6E6FA; }  /* Lavender */
-.cell.subtask-M { background: #D0F0C0; }  /* Mint */
-.cell.subtask-L { background: #FFDAB9; }  /* Peach */
+.cell.subtask-H { background: #E6E6FA; }
+.cell.subtask-M { background: #D0F0C0; }
+.cell.subtask-L { background: #FFDAB9; }
 
 .score-panel {
   min-width: 160px;
   padding: 10px;
   border-left: 1px solid #ddd;
   font-size: 13px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
 .score-panel h4 {
@@ -93,33 +94,34 @@ body {
   margin: 4px 0;
 }
 
-.agent-card {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 8px;
-  margin-bottom: 8px;
-  background: #fafafa;
+.decision-panel {
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
 }
 
-.recommendations {
-  margin-top: 10px;
+.decision-panel h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: #222;
+}
+
+.decision-panel #task-recommendations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .task-card {
   border: 1px solid #ddd;
   border-radius: 6px;
   padding: 6px;
-  margin-bottom: 6px;
   background: #fafafa;
   font-size: 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.task-info {
-  flex: 1;
-  margin-right: 6px;
 }
 
 .task-buttons {
@@ -138,12 +140,12 @@ body {
   background: #ddd;
 }
 
-/* Agent control split */
 .agent-layout {
   display: flex;
   gap: 20px;
   align-items: flex-start;
 }
+
 .agent-left {
   flex: 1;
 }
@@ -154,20 +156,13 @@ body {
   margin: 4px 0;
 }
 
-.sev-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.sev-card {
+.agent-card {
   border: 1px solid #ddd;
   border-radius: 8px;
   padding: 8px;
+  margin-bottom: 8px;
+  background: #fafafa;
 }
-.sev-card.H { background: #E6E6FA; }
-.sev-card.M { background: #D0F0C0; }
-.sev-card.L { background: #FFDAB9; }
 
 .bot-table {
   width: 100%;
@@ -189,30 +184,37 @@ body {
   color: #fff;
 }
 
-
-.modal { 
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
-  background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center;
+.modal {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6); display: flex;
+  justify-content: center; align-items: center;
 }
 .modal.hidden { display: none; }
-.modal-content { background: #fff; padding: 20px; border-radius: 8px; max-width: 400px; text-align: center; }
-
+.modal-content {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 400px;
+  text-align: center;
+}
 
 .insight-card {
   display: inline-block;
-  width: 30%;
-  margin: 0 8px 16px 0;
-  padding: 10px;
+  width: 28%;
+  margin: 0 6px 10px 0;
+  padding: 8px;
   border-radius: 8px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.15);
   vertical-align: top;
 }
+
 .insight-card h4 {
-  margin: 0 0 6px;
-  font-size: 14px;
+  margin: 0 0 4px;
+  font-size: 13px;
   font-weight: bold;
   text-align: center;
 }
+
 .insight-table {
   width: 100%;
   font-size: 12px;
@@ -225,8 +227,4 @@ body {
 }
 .insight-table th {
   background: rgba(255,255,255,0.6);
-}
-
-.insight-section {
-  margin-bottom: 20px;
 }

@@ -13,135 +13,131 @@
   </div>
 </header>
 
+<main class="layout">
+  <!-- LEFT: GRID + INSIGHTS -->
+  <section class="left">
+    <div class="panel grid-panel">
+      <h3>Environment Grid</h3>
+      <div class="grid-layout">
+        <div id="grid-container" class="grid"></div>
 
-  <main class="layout">
-    <!-- LEFT: GRID + INSIGHTS -->
-    <section class="left">
-      <div class="panel grid-panel">
-        <h3>Environment Grid</h3>
-        <div class="grid-layout">
-          <div id="grid-container" class="grid"></div>
-
+        <div class="side-controls">
           <div id="score-panel" class="score-panel">
             <h4>Scores</h4>
             <p>Human Score: <span id="human-score">0</span></p>
             <p><b>Total Team Score: <span id="team-score">0</span></b></p>
           </div>
-        </div>
-      </div>
 
-<div id="insights-container">
-  <h3>Current Estimates</h3>
-
-  <div class="insight-card" style="background:#E6E6FA" id="card-H">
-    <h4>H-Task</h4>
-    <table class="insight-table">
-      <thead><tr><th>Metric</th><th>Human</th><th>Bots</th></tr></thead>
-      <tbody>
-        <tr><td>Reward</td><td id="H-reward-human">–</td><td id="H-reward-bot">–</td></tr>
-        <tr><td>Resources</td><td id="H-res-human">–</td><td id="H-res-bot">–</td></tr>
-        <tr><td>Service Time</td><td id="H-svc-human">–</td><td id="H-svc-bot">–</td></tr>
-        <tr><td>Damage %</td><td id="H-dmg-human">–</td><td id="H-dmg-bot">–</td></tr>
-        <tr><td># Completed</td><td id="H-comp-human">0</td><td id="H-comp-bot">0</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="insight-card" style="background:#D0F0C0" id="card-M">
-    <h4>M-Task</h4>
-    <table class="insight-table">
-      <thead><tr><th>Metric</th><th>Human</th><th>Bots</th></tr></thead>
-      <tbody>
-        <tr><td>Reward</td><td id="M-reward-human">–</td><td id="M-reward-bot">–</td></tr>
-        <tr><td>Resources</td><td id="M-res-human">–</td><td id="M-res-bot">–</td></tr>
-        <tr><td>Service Time</td><td id="M-svc-human">–</td><td id="M-svc-bot">–</td></tr>
-        <tr><td>Damage %</td><td id="M-dmg-human">–</td><td id="M-dmg-bot">–</td></tr>
-        <tr><td># Completed</td><td id="M-comp-human">0</td><td id="M-comp-bot">0</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="insight-card" style="background:#FFDAB9" id="card-L">
-    <h4>L-Task</h4>
-    <table class="insight-table">
-      <thead><tr><th>Metric</th><th>Human</th><th>Bots</th></tr></thead>
-      <tbody>
-        <tr><td>Reward</td><td id="L-reward-human">–</td><td id="L-reward-bot">–</td></tr>
-        <tr><td>Resources</td><td id="L-res-human">–</td><td id="L-res-bot">–</td></tr>
-        <tr><td>Service Time</td><td id="L-svc-human">–</td><td id="L-svc-bot">–</td></tr>
-        <tr><td>Damage %</td><td id="L-dmg-human">–</td><td id="L-dmg-bot">–</td></tr>
-        <tr><td># Completed</td><td id="L-comp-human">0</td><td id="L-comp-bot">0</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-
-
-    </section>
-
-    <!-- RIGHT: AGENTS -->
-    <section class="right">
-      <div class="panel">
-        <h3>Agent Control Panel</h3>
-        <div class="agent-layout">
-          <!-- Left: Stats + Recommendations -->
-          <div class="agent-left">
-            <div id="agent-Human" class="agent-card">
-              Capacity: 12<br>
-              Available: 12<br>
-              Engaged: 0<br>
-              Repairing: 0
-            </div>
-
-            <div class="recommendations">
-              <h4>Recommendation:</h4>
-              <div id="task-recommendations"></div>
-            </div>
-          </div>
-
-          <!-- Right: Human Task Table -->
-          <div class="agent-right">
-            <h4>Human Tasks</h4>
-            <table class="bot-table" id="human-table">
-              <thead>
-                <tr><th>Task</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                <tr><td>–</td><td>Idle</td></tr>
-              </tbody>
-            </table>
+          <div class="decision-panel">
+            <h4>Task Recommendation</h4>
+            <div id="task-recommendations"></div>
           </div>
         </div>
       </div>
+    </div>
 
-      <div class="panel">
-        <h3>Bot 1</h3>
-        <table class="bot-table" id="bot1-table">
-          <thead>
-            <tr><th>Task</th><th>Status</th></tr>
-          </thead>
+    <div id="insights-container">
+      <h3>Current Estimates</h3>
+
+      <div class="insight-card" style="background:#E6E6FA" id="card-H">
+        <h4>H-Task</h4>
+        <table class="insight-table">
+          <thead><tr><th>Metric</th><th>Human</th><th>Bots</th></tr></thead>
           <tbody>
-            <tr><td>–</td><td>Idle</td></tr>
+            <tr><td>Reward</td><td id="H-reward-human">–</td><td id="H-reward-bot">–</td></tr>
+            <tr><td>Resources</td><td id="H-res-human">–</td><td id="H-res-bot">–</td></tr>
+            <tr><td>Service Time</td><td id="H-svc-human">–</td><td id="H-svc-bot">–</td></tr>
+            <tr><td>Damage %</td><td id="H-dmg-human">–</td><td id="H-dmg-bot">–</td></tr>
+            <tr><td># Completed</td><td id="H-comp-human">0</td><td id="H-comp-bot">0</td></tr>
           </tbody>
         </table>
       </div>
 
-      <div class="panel">
-        <h3>Bot 2</h3>
-        <table class="bot-table" id="bot2-table">
-          <thead>
-            <tr><th>Task</th><th>Status</th></tr>
-          </thead>
+      <div class="insight-card" style="background:#D0F0C0" id="card-M">
+        <h4>M-Task</h4>
+        <table class="insight-table">
+          <thead><tr><th>Metric</th><th>Human</th><th>Bots</th></tr></thead>
           <tbody>
-            <tr><td>–</td><td>Idle</td></tr>
+            <tr><td>Reward</td><td id="M-reward-human">–</td><td id="M-reward-bot">–</td></tr>
+            <tr><td>Resources</td><td id="M-res-human">–</td><td id="M-res-bot">–</td></tr>
+            <tr><td>Service Time</td><td id="M-svc-human">–</td><td id="M-svc-bot">–</td></tr>
+            <tr><td>Damage %</td><td id="M-dmg-human">–</td><td id="M-dmg-bot">–</td></tr>
+            <tr><td># Completed</td><td id="M-comp-human">0</td><td id="M-comp-bot">0</td></tr>
           </tbody>
         </table>
       </div>
-    </section>
-  </main>
 
-  <div id="phase-modal" class="modal hidden">
+      <div class="insight-card" style="background:#FFDAB9" id="card-L">
+        <h4>L-Task</h4>
+        <table class="insight-table">
+          <thead><tr><th>Metric</th><th>Human</th><th>Bots</th></tr></thead>
+          <tbody>
+            <tr><td>Reward</td><td id="L-reward-human">–</td><td id="L-reward-bot">–</td></tr>
+            <tr><td>Resources</td><td id="L-res-human">–</td><td id="L-res-bot">–</td></tr>
+            <tr><td>Service Time</td><td id="L-svc-human">–</td><td id="L-svc-bot">–</td></tr>
+            <tr><td>Damage %</td><td id="L-dmg-human">–</td><td id="L-dmg-bot">–</td></tr>
+            <tr><td># Completed</td><td id="L-comp-human">0</td><td id="L-comp-bot">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: AGENTS -->
+  <section class="right">
+    <div class="panel">
+      <h3>Agent Control Panel</h3>
+      <div class="agent-layout">
+        <div class="agent-left">
+          <div id="agent-Human" class="agent-card">
+            Capacity: 12<br>
+            Available: 12<br>
+            Engaged: 0<br>
+            Repairing: 0
+          </div>
+        </div>
+
+        <div class="agent-right">
+          <h4>Human Tasks</h4>
+          <table class="bot-table" id="human-table">
+            <thead>
+              <tr><th>Task</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>–</td><td>Idle</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Bot 1</h3>
+      <table class="bot-table" id="bot1-table">
+        <thead>
+          <tr><th>Task</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>–</td><td>Idle</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h3>Bot 2</h3>
+      <table class="bot-table" id="bot2-table">
+        <thead>
+          <tr><th>Task</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>–</td><td>Idle</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="phase-modal" class="modal hidden">
   <div class="modal-content">
     <h2>Phase Change</h2>
     <p id="phase-message"></p>
@@ -149,12 +145,10 @@
   </div>
 </div>
 
+<footer class="footer">
+  <p>&copy;D-Cypher Lab</p>
+</footer>
 
-  <footer class="footer">
-    <p>&copy;D-Cypher Lab</p>
-  </footer>
-
-  
-  <script src="script.js" type="module"></script>
+<script src="script.js" type="module"></script>
 </body>
 </html>

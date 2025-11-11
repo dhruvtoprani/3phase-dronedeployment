@@ -852,7 +852,7 @@ function botLogRow(tableId, taskId, status) {
   const row = document.createElement("tr");
   row.innerHTML = `<td>${taskId}</td><td>${status}</td>`;
   tbody.prepend(row);
-  while (tbody.rows.length > 8) tbody.deleteRow(-1);
+  while (tbody.rows.length > 3) tbody.deleteRow(-1);
 }
 function botAcceptTask(bot, tableId, cell) {
   const sev = cell.severity;
@@ -1555,9 +1555,9 @@ async function saveExitSurvey(pid, responses) {
 }
 
 function renderOnboardingStep() {
-  const body   = document.getElementById("onb-body");
-  const nextBtn= document.getElementById("onb-next");
-  const prevBtn= document.getElementById("onb-prev");
+  const body = document.getElementById("onb-body");
+  const nextBtn = document.getElementById("onb-next");
+  const prevBtn = document.getElementById("onb-prev");
 
   function goNext() {
     onboardingState.step = Math.min(onboardingState.step + 1, onboardingState.steps.length - 1);
@@ -1567,44 +1567,51 @@ function renderOnboardingStep() {
     onboardingState.step = Math.max(onboardingState.step - 1, 0);
     renderOnboardingStep();
   }
+
   if (prevBtn) {
     prevBtn.onclick = goPrev;
     prevBtn.style.visibility = onboardingState.step === 0 ? "hidden" : "visible";
   }
 
-  // survey helpers
-  function renderPreSurvey(containerEl, questions = PRE_SURVEY_QUESTIONS) {
-    containerEl.innerHTML = `
-      <h2 style="margin:0 0 8px">Pre-Survey</h2>
-      <p>Use the sliders to respond.</p>
-      <div id="onb-survey" style="display:grid; gap:12px; margin-top:8px"></div>
-    `;
-    const holder = containerEl.querySelector("#onb-survey");
-    questions.forEach((q, idx) => {
-      const min = q.min ?? 1, max = q.max ?? 10, val = q.default ?? Math.round((min + max) / 2);
+  // 🔔 reusable red popup
+  function showPopup(msg) {
+    const warn = document.createElement("div");
+    warn.textContent = msg;
+    Object.assign(warn.style, {
+      position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)",
+      background: "#f44336", color: "white", padding: "10px 16px",
+      borderRadius: "8px", fontSize: "14px", boxShadow: "0 2px 10px rgba(0,0,0,0.25)",
+      zIndex: "99999"
+    });
+    document.body.appendChild(warn);
+    setTimeout(() => warn.remove(), 1600);
+  }
+
+  // ----- survey helpers -----
+  function renderSurveyPage(containerEl, questions, label) {
+    containerEl.innerHTML = `<h2 style="margin:0 0 8px">${label}</h2>`;
+    const holder = document.createElement("div");
+    holder.id = "onb-survey";
+    holder.style.display = "grid";
+    holder.style.gap = "12px";
+    containerEl.appendChild(holder);
+
+    questions.forEach(q => {
+      const val = q.default ?? Math.round((q.min + q.max) / 2);
       const row = document.createElement("div");
-      row.className = "survey-item";
       row.innerHTML = `
-        <label for="${q.id}" style="display:block; margin-bottom:4px">
-          Q${idx + 1}: ${q.text}
-        </label>
-        <div style="display:flex; justify-content:space-between; font-size:12px; color:#666; margin-bottom:2px;">
-          <span>${q.minLabel ?? min}</span>
-          <span>${q.maxLabel ?? max}</span>
-        </div>
-        <input type="range" min="${min}" max="${max}" value="${val}" step="1"
-               id="${q.id}"
-               oninput="document.getElementById('${q.id}-val').textContent=this.value">
-        <div>Value: <span id="${q.id}-val">${val}</span></div>
-      `;
+        <label>${q.text}</label>
+        <input type="range" id="${q.id}" min="${q.min}" max="${q.max}" value="${val}" step="1"
+          oninput="document.getElementById('${q.id}-val').textContent=this.value">
+        <div>Value: <span id="${q.id}-val">${val}</span></div>`;
       holder.appendChild(row);
     });
   }
-  function collectPreSurveyResponses(questions = PRE_SURVEY_QUESTIONS) {
-    const holder = document.getElementById("onb-survey");
+
+  function collectSurveyResponses(questions) {
     const answers = {};
     questions.forEach(q => {
-      const el = holder?.querySelector(`#${q.id}`);
+      const el = document.getElementById(q.id);
       if (el) answers[q.id] = Number(el.value);
     });
     return answers;
@@ -1613,16 +1620,17 @@ function renderOnboardingStep() {
   const s = onboardingState.steps[onboardingState.step];
   if (!nextBtn) return;
 
+  /* ---------------- ID entry ---------------- */
   if (s === "pid") {
     nextBtn.textContent = "Next";
     body.innerHTML = `
       <h2>Welcome!</h2>
       <p>Please enter your Participant ID to begin.</p>
-      <input id="onb-pid" placeholder="e.g., P1234" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px">
-    `;
+      <input id="onb-pid" placeholder="e.g., P1234"
+        style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px">`;
     nextBtn.onclick = () => {
       const pid = (document.getElementById("onb-pid")?.value || "").trim();
-      if (!pid) { alert("Please enter a Participant ID."); return; }
+      if (!pid) { showPopup("Please enter a Participant ID."); return; }
       onboardingState.pid = pid;
       experimentLog.participantId = pid;
       logTaskEvent({ type: "ONB_PID_SET", pid });
@@ -1630,126 +1638,149 @@ function renderOnboardingStep() {
     };
   }
 
+  /* ---------------- Pre-Survey 1 ---------------- */
   if (s === "survey1") {
     nextBtn.textContent = "Next";
-    renderSurveyPage(body, PRE_SURVEY_QUESTIONS.slice(0,5), "Pre-Survey (1/2)");
+    renderSurveyPage(body, PRE_SURVEY_QUESTIONS.slice(0, 5), "Pre-Survey (1/2)");
     nextBtn.onclick = () => {
-      onboardingState.partialSurvey1 = collectSurveyResponses(PRE_SURVEY_QUESTIONS.slice(0,5));
+      const questions = PRE_SURVEY_QUESTIONS.slice(0, 5);
+      const missing = [];
+      questions.forEach((q, i) => {
+        const val = Number(document.getElementById(q.id)?.value);
+        if (val === q.default) missing.push(i + 1);
+      });
+      if (missing.length > 0) {
+        showPopup(`Please adjust all sliders before continuing. Missing: Q${missing.join(", ")}`);
+        return;
+      }
+      onboardingState.partialSurvey1 = collectSurveyResponses(questions);
       goNext();
     };
   }
 
+  /* ---------------- Pre-Survey 2 ---------------- */
   if (s === "survey2") {
     nextBtn.textContent = "Next";
     renderSurveyPage(body, PRE_SURVEY_QUESTIONS.slice(5), "Pre-Survey (2/2)");
     nextBtn.onclick = () => {
-      const part2 = collectSurveyResponses(PRE_SURVEY_QUESTIONS.slice(5));
+      const questions = PRE_SURVEY_QUESTIONS.slice(5);
+      const missing = [];
+      questions.forEach((q, i) => {
+        const val = Number(document.getElementById(q.id)?.value);
+        if (val === q.default) missing.push(i + 6);
+      });
+      if (missing.length > 0) {
+        showPopup(`Please adjust all sliders before continuing. Missing: Q${missing.join(", ")}`);
+        return;
+      }
+      const part2 = collectSurveyResponses(questions);
       const all = { ...onboardingState.partialSurvey1, ...part2 };
       onboardingState.preSurvey = { answers: all, meta: PRE_SURVEY_QUESTIONS };
-      experimentLog.preSurvey   = { answers: all, meta: PRE_SURVEY_QUESTIONS };
+      experimentLog.preSurvey = { answers: all, meta: PRE_SURVEY_QUESTIONS };
       logTaskEvent({ type: "SURVEY_SUBMIT", survey: "pre", answers: all });
       goNext();
     };
   }
 
-  if (s === "scenario1") {
+  /* ---------------- Reading pages (acknowledgment required) ---------------- */
+  const readingPages = {
+    scenario1: {
+      title: "Mission Control",
+      html: `
+        <p>You are part of a rapid-response operations team.</p>
+        <p>Emergencies are breaking out across a city grid. Each incident represents a task that must be handled quickly and efficiently.</p>
+        <p>You will be working alongside two AI teammates. Together, your mission is to manage tasks as they appear on the grid.</p>`
+    },
+    scenario2: {
+      title: "Your Role",
+      html: `
+        <p>You will receive task recommendations. For each one, you may choose to <b>accept</b> or <b>reject</b> it.</p>
+        <p>Accepting consumes resources and contributes to team performance. Rejecting passes the decision to the AI teammates.</p>
+        <p>The goal is to work together with the AI agents to <b>maximize total team reward</b>.</p>`
+    },
+    info1: {
+      title: "Task Characteristics",
+      html: `
+        <p>Tasks differ in:</p>
+        <ul>
+          <li><b>Severity</b> — urgency or criticality</li>
+          <li><b>Resource Demand</b> — effort required</li>
+          <li><b>Uncertainty</b> — predictability of outcome</li>
+        </ul>
+        <p>There are <b>3 task types</b>, each with its own profile.</p>`
+    },
+    info2: {
+      title: "The Display",
+      html: `
+        <p>The grid represents the environment. Each square is a building. When a task spawns, it appears as a marker.</p>
+        <p>The right-side panel shows your <b>current recommendation</b>. Click <b>Accept</b> or <b>Reject</b> for each.</p>`
+    },
+    info3: {
+      title: "Task Assignment Algorithm",
+      html: `
+        <p>An algorithm allocates tasks considering:</p>
+        <ul>
+          <li>Your accept/reject choices</li>
+          <li>AI teammates’ preferences</li>
+          <li>Team reward vs. cost balance</li>
+        </ul>`
+    },
+    info4: {
+      title: "Your Objective",
+      html: `
+        <p>You and your AI teammates share one goal:</p>
+        <p style="text-align:center;font-weight:bold;font-size:1.2em;margin:12px 0;">Maximize overall <b>team reward</b></p>
+        <p>Your decisions shape team performance; there is no single right answer.</p>`
+    },
+    video: {
+      title: "Short Demo",
+      html: `
+        <div style="height:240px; border:2px dashed #bbb; border-radius:12px;
+             display:flex; align-items:center; justify-content:center; margin-bottom:12px;">
+          <span>Video placeholder</span>
+        </div>
+        <p>Please watch this short demonstration before proceeding.</p>`
+    }
+  };
+
+  if (readingPages[s]) {
+    const page = readingPages[s];
     nextBtn.textContent = "Next";
     body.innerHTML = `
-      <h2>Mission Control</h2>
-      <p>You are part of a rapid-response operations team.</p>
-      <p>Emergencies are breaking out across a city grid. Each incident represents a task that must be handled quickly and efficiently.</p>
-      <p>You will be working alongside two AI teammates. Together, your mission is to manage tasks as they appear on the grid.</p>
-    `;
-    nextBtn.onclick = () => { logTaskEvent({ type:"ONB_SCENARIO1_VIEWED" }); goNext(); };
+      <h2>${page.title}</h2>
+      ${page.html}
+      <div style="margin-top:16px">
+        <label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="ack-${s}">
+          <span>I have read and understood the above information.</span>
+        </label>
+      </div>`;
+    nextBtn.onclick = () => {
+      const box = document.getElementById(`ack-${s}`);
+      if (!box || !box.checked) {
+        showPopup("Acknowledgment required before proceeding.");
+        return;
+      }
+      logTaskEvent({ type: `ONB_${s.toUpperCase()}_VIEWED` });
+      goNext();
+    };
   }
 
-  if (s === "scenario2") {
-    nextBtn.textContent = "Next";
-    body.innerHTML = `
-      <h2>Your Role</h2>
-      <p>You will receive task recommendations. For each one, you may choose to <b>accept</b> or <b>reject</b> it based on your preferences.</p>
-      <p>Accepting consumes resources and contributes to team performance. Rejecting passes the decision to the AI teammates, who may or may not take it.</p>
-      <p>The goal is to work together with the AI agents to <b>maximize total team reward</b>.</p>
-    `;
-    nextBtn.onclick = () => { logTaskEvent({ type:"ONB_SCENARIO2_VIEWED" }); goNext(); };
-  }
-
-  if (s === "info1") {
-    nextBtn.textContent = "Next";
-    body.innerHTML = `
-      <h2>Task Characteristics</h2>
-      <p>Tasks may differ in several ways:</p>
-      <ul>
-        <li><b>Severity</b> — how urgent or critical the incident is.</li>
-        <li><b>Resource Demand</b> — how much effort is required to complete it.</li>
-        <li><b>Uncertainty</b> — how predictable or unpredictable the outcome may be.</li>
-      </ul>
-      <p>There are <b>3 unique types of tasks</b>, each with its own profile.</p>
-    `;
-    nextBtn.onclick = () => { logTaskEvent({ type:"ONB_INFO1_VIEWED" }); goNext(); };
-  }
-
-  if (s === "info2") {
-    nextBtn.textContent = "Next";
-    body.innerHTML = `
-      <h2>The Display</h2>
-      <p>The grid represents the environment. Each square is a building. When a task spawns, it appears as a marker inside one of the buildings.</p>
-      <p>The panel on the right shows your <b>current task recommendation</b> with its details. You will click <b>Accept</b> or <b>Reject</b> for each recommendation.</p>
-    `;
-    nextBtn.onclick = () => { logTaskEvent({ type:"ONB_INFO2_VIEWED" }); goNext(); };
-  }
-
-  if (s === "info3") {
-    nextBtn.textContent = "Next";
-    body.innerHTML = `
-      <h2>Task Assignment Algorithm</h2>
-      <p>An algorithm runs in the background to allocate tasks across all team members. It considers:</p>
-      <ul>
-        <li>Your accept/reject decisions</li>
-        <li>The AI teammates’ preferences and resources</li>
-        <li>The balance of reward and cost for the team</li>
-      </ul>
-      <p>Even if you reject a task, it may still be picked up by the AI — sometimes optimally, sometimes not.</p>
-    `;
-    nextBtn.onclick = () => { logTaskEvent({ type:"ONB_INFO3_VIEWED" }); goNext(); };
-  }
-
-  if (s === "info4") {
-    nextBtn.textContent = "Next";
-    body.innerHTML = `
-      <h2>Your Objective</h2>
-      <p>You and your AI teammates are working toward one shared goal:</p>
-      <p style="text-align:center;font-weight:bold;font-size:1.2em;margin:12px 0;">
-        Maximize the overall <b>team reward</b>
-      </p>
-      <p>Your decisions shape how the team performs. There is no single right answer.</p>
-    `;
-    nextBtn.onclick = () => { logTaskEvent({ type:"ONB_INFO4_VIEWED" }); goNext(); };
-  }
-
-  if (s === "video") {
-    nextBtn.textContent = "Next";
-    body.innerHTML = `
-      <h2>Short Demo</h2>
-      <div style="height:240px; border:2px dashed #bbb; border-radius:12px; display:flex; align-items:center; justify-content:center">
-        <span>Video placeholder</span>
-      </div>
-    `;
-    nextBtn.onclick = () => { logTaskEvent({ type:"ONB_VIDEO_VIEWED" }); goNext(); };
-  }
-
+  /* ---------------- Ready page ---------------- */
   if (s === "ready") {
-    nextBtn.textContent = "Start Experiment";
     body.innerHTML = `
-      <h2>All set</h2>
-      <p>Click below when you’re ready to begin.</p>
-      <button id="onb-start" style="padding:10px 16px; border-radius:10px; border:1px solid #222; background:#111; color:#fff; cursor:pointer">Start</button>
-    `;
-    const startBtn = document.getElementById("onb-start");
-    if (startBtn) startBtn.addEventListener("click", startExperimentFromOnboarding);
-    nextBtn.onclick = startExperimentFromOnboarding;
+      <h2>All Set</h2>
+      <p>Click below when you're ready to begin the experiment.</p>
+      <button id="onb-start"
+        style="padding:10px 16px; border-radius:10px; border:1px solid #222;
+               background:#111; color:#fff; cursor:pointer">Start Experiment</button>`;
+    nextBtn.style.display = "none";
+    document.getElementById("onb-start").onclick = startExperimentFromOnboarding;
   }
 }
+
+
+
 
 function startExperimentFromOnboarding() {
   logTaskEvent({ type: "ONB_COMPLETE" });
