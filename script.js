@@ -28,6 +28,11 @@ const gridSize = 10;
 const totalCells = gridSize * gridSize;
 const buildingCount = 18;
 const severities = ["H", "M", "L"];
+const SEVERITY_LABELS = {
+  H: "H",
+  M: "M",
+  L: "L"
+};
 const gridContainer = document.getElementById("grid-container");
 // Fixed pastel colors (neutral to avoid severity bias)
 const pastelColors = {
@@ -254,6 +259,8 @@ let phaseAcknowledged = false;
 
 // 1s anti-spam
 let actionCooldown = false;
+// Bots should only start after the human accepts their first task in each phase
+let botsStartedForPhase = false;
 
 /******************************************************
  * HUMAN PREFERENCE MODEL
@@ -431,6 +438,149 @@ function drawServiceTime(sev, agent = DEFAULT_SPAWN_AGENT, phase = activePhaseKe
   return randInt(lo, hi);
 }
 
+/******************************************************
+ * TASK COMPLETION POPUP (QUEUED)
+ ******************************************************/
+let completionPopup = null;
+let completionDetailsEl = null;
+
+// Queue of pending summaries
+let completionQueue = [];
+let completionActive = false;
+
+function ensureCompletionPopup() {
+  if (completionPopup) return;
+
+  completionPopup = document.createElement("div");
+  completionPopup.id = "completion-popup-overlay";
+  Object.assign(completionPopup.style, {
+    position: "fixed",
+    inset: "0",
+    display: "none",
+    justifyContent: "center",
+    alignItems: "center",
+    background: "rgba(0,0,0,0.55)",
+    zIndex: "12000"
+  });
+
+  completionPopup.innerHTML = `
+    <div style="
+      background:#ffffff;
+      padding:20px 22px;
+      width:min(360px, 92vw);
+      border-radius:12px;
+      box-shadow:0 8px 30px rgba(0,0,0,0.25);
+      font-family:system-ui, sans-serif;
+      text-align:left;">
+      <h2 style="margin:0 0 10px; font-size:20px;">Task Summary</h2>
+      <div id="completion-details" style="font-size:14px; line-height:1.5;"></div>
+      <button id="completion-close-btn" style="
+        margin-top:14px;
+        padding:8px 14px;
+        border-radius:8px;
+        border:1px solid #111;
+        background:#111;
+        color:#fff;
+        cursor:pointer;
+        font-size:14px;">
+        Continue
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(completionPopup);
+  completionDetailsEl = document.getElementById("completion-details");
+  const closeBtn = document.getElementById("completion-close-btn");
+
+  const advance = () => {
+    // Move to next summary in the queue
+    completionQueue.shift();
+    if (completionQueue.length === 0) {
+      completionPopup.style.display = "none";
+      completionActive = false;
+    } else {
+      renderCurrentCompletion();
+    }
+  };
+
+  closeBtn.addEventListener("click", advance);
+  completionPopup.addEventListener("click", (e) => {
+    // Click on dark overlay also means continue
+    if (e.target === completionPopup) advance();
+  });
+}
+
+function renderCurrentCompletion() {
+  if (!completionPopup || !completionDetailsEl) return;
+  if (completionQueue.length === 0) {
+    completionPopup.style.display = "none";
+    completionActive = false;
+    return;
+  }
+
+  const info = completionQueue[0];
+
+  const {
+    agent = "You",
+    dronesUsed = 0,
+    dronesDamaged = 0,
+    pointsGained = 0,
+    timeTaken = 0,
+    taskId = "N/A",
+    severity = null
+  } = info;
+
+  const sevLabel = severity && SEVERITY_LABELS[severity]
+    ? `${SEVERITY_LABELS[severity]} (${severity})`
+    : (severity || "");
+
+  completionDetailsEl.innerHTML = `
+    <p><strong>Task:</strong> ${taskId}</p>
+    <p><strong>Type:</strong> ${sevLabel}</p>
+    <p><strong>Agent:</strong> ${agent}</p>
+    <hr style="border:none;border-top:1px solid #ddd;margin:8px 0 10px;">
+    <p><strong>Drones used:</strong> ${dronesUsed}</p>
+    <p><strong>Drones damaged:</strong> ${dronesDamaged}</p>
+    <p><strong>Points gained:</strong> ${pointsGained}</p>
+    <p><strong>Time taken:</strong> ${timeTaken}s</p>
+  `;
+
+  completionPopup.style.display = "flex";
+
+  // Optional log that this specific summary is being shown
+  logTaskEvent({
+    type: "SUMMARY_POPUP_SHOW",
+    agent,
+    taskId,
+    severity,
+    dronesUsed,
+    dronesDamaged,
+    pointsGained,
+    timeTaken
+  });
+}
+
+/**
+ * Public API: enqueue a new completion summary.
+ * If the popup is idle, it shows immediately.
+ * If another summary is already open, this is queued as the next page.
+ */
+function showCompletionPopup(info) {
+  ensureCompletionPopup();
+  completionQueue.push(info);
+
+  if (!completionActive) {
+    completionActive = true;
+    renderCurrentCompletion();
+  } else {
+    // Already active, just log that we queued another one
+    logTaskEvent({
+      type: "SUMMARY_POPUP_QUEUED",
+      taskId: info.taskId,
+      severity: info.severity || null
+    });
+  }
+}
 
 /******************************************************
  * RECOMMENDER (q-hat with variance like MATLAB)
@@ -663,12 +813,18 @@ function getNextRecommendation() {
 
 function acceptTask(sev, taskId) {
   if (actionCooldown) return;
-  actionCooldown = true; setTimeout(() => actionCooldown = false, 1000);
+  actionCooldown = true;
+  setTimeout(() => actionCooldown = false, 1000);
 
-  if (!playClockStarted && !pendingPhaseSwitch) { playClockStarted = true; startPlayClock(); }
+  if (!playClockStarted && !pendingPhaseSwitch) {
+    playClockStarted = true;
+    startPlayClock();
+  }
   maybeSwitchPhaseOnAction();
 
-  const cell = activeTasks[sev].find(c => c.task?.id === taskId && c.task.status === "pending");
+  const cell = activeTasks[sev].find(
+    c => c.task?.id === taskId && c.task.status === "pending"
+  );
   if (!cell) return;
 
   // Claim exclusivity immediately
@@ -678,7 +834,18 @@ function acceptTask(sev, taskId) {
   humanPreferences[sev].accepted++;
   logTaskEvent({ type: "ACCEPT", agent: "human", taskId, severity: sev });
 
+  // Start the human’s task
   startTaskForHuman(cell);
+
+  // ✅ First acceptance in this phase → now we let the bots start working
+  if (!botsStartedForPhase) {
+    botsStartedForPhase = true;
+    startBots();
+    logTaskEvent({
+      type: "BOTS_STARTED_FOR_PHASE",
+      phase: currentPhase
+    });
+  }
 
   // 🔄 Reset queue completely & recompute based on updated preferences
   recQueue = [];
@@ -779,8 +946,8 @@ function startTaskForHuman(cell) {
     cell.task.status = "completed";
     renderGrid();
 
-const ap = getActiveParam(sev, "human");
-const damaged = Math.random() < ap.damageProb;
+    const ap = getActiveParam(sev, "human");
+    const damaged = Math.random() < ap.damageProb;
 
     const overuse = Math.max(0, need - capacityLeft);
     const penalty = overuse * OVERCAP_PENALTY_PER_UNIT;
@@ -797,6 +964,16 @@ const damaged = Math.random() < ap.damageProb;
       result: { reward, serviceTime, resourcesUsed: need, damaged, overuse, penalty, finalScore }
     });
 
+    // 🔔 Show per–task summary popup (human tasks only)
+    showCompletionPopup({
+      agent: "You",
+      taskId: cell.task.id,
+      severity: sev,
+      dronesUsed: need,
+      dronesDamaged: damaged ? 1 : 0,
+      pointsGained: finalScore,
+      timeTaken: serviceTime
+    });
     humanPreferences[sev].completed++;
     insightsData[sev].rewards.push(reward);
     insightsData[sev].resources.push(need);
@@ -1974,6 +2151,7 @@ renderRecommendations();
 updateAgentPanel();
 updateScores(0, 0, 0);
 updateInsights();
+ensureCompletionPopup();   // 🔔 make sure popup DOM exists
 
 /* Onboarding pops immediately on load */
 ensureOnboardingUI();
