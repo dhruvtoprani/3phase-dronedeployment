@@ -391,3 +391,69 @@ body {
 .tbar-legend-swatch.patch   { background: rgba(118, 165, 255, 0.8); }
 .tbar-legend-swatch.conf    { background: #4caf50; }
 .tbar-legend-swatch.extra   { background: #ff5722; }
+
+/* Selected card state (cart) */
+.task-card.task-selected {
+  border-color: #1a73e8;
+  background: #e8f0fe;
+}
+
+/* Bundle controls under the task cards */
+.bundle-controls {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.bundle-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.bundle-buttons button {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid #777;
+  background: #eee;
+  cursor: pointer;
+}
+
+.bundle-buttons button:hover {
+  background: #ddd;
+}
+
+/* Extra markers for resource T-bar */
+.tbar-current,
+.tbar-limit {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+}
+
+.tbar-current {
+  left: calc(var(--current, 0) * 1%);
+  background: #4caf50;  /* green */
+}
+
+.tbar-limit {
+  left: calc(var(--limit, 100) * 1%);
+  background: #d32f2f;  /* red */
+}
+
+/* Legend swatches for new markers */
+.tbar-legend-swatch.current {
+  background: #4caf50;
+}
+
+.tbar-legend-swatch.limit {
+  background: #d32f2f;
+}

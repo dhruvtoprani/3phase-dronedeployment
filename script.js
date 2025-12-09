@@ -251,6 +251,9 @@ let isTestMode = false;
 let currentPhase = null;
 let phaseOrder = [];
 let activePhaseIndex = 0;
+// Tasks the human has "added to cart" in benchmark phase
+let selectedTasks = {};
+
 
 let playTimer = null;
 let playElapsedSeconds = 0;
@@ -1446,79 +1449,375 @@ if (status === "pending") {
     gridContainer.appendChild(div);
   }
 }
-function renderRecommendations() {
-  const container = document.getElementById("task-recommendations");
-  if (!container) return;
-  container.innerHTML = "";
 
-  // ----------------------------
-  // Learning phase: single sorted queue
-  // ----------------------------
- if (currentPhase === "learning") {
-  if (recQueue.length === 0) computeRecommendationQueue();
-  if (recQueue.length === 0) {
-    setText("recommendation", "–");
+function getSelectedTasksArray() {
+  return Object.values(selectedTasks);
+}
+
+function clearSelection() {
+  selectedTasks = {};
+  renderRecommendations();
+  renderRecStats(null);
+  logTaskEvent({ type: "SELECTION_CLEAR", phase: currentPhase });
+}
+
+function toggleSelectTask(sev, taskId) {
+  const key = taskId;
+
+  // If already selected, unselect
+  if (selectedTasks[key]) {
+    delete selectedTasks[key];
+    logTaskEvent({ type: "SELECTION_REMOVE", taskId, severity: sev });
+  } else {
+    // Only allow selection if the task is still pending
+    const cell = activeTasks[sev].find(
+      c => c.task?.id === taskId && c.task.status === "pending"
+    );
+    if (!cell) return;
+    selectedTasks[key] = { sev, taskId };
+    logTaskEvent({ type: "SELECTION_ADD", taskId, severity: sev });
+  }
+
+  renderRecommendations();
+  renderRecStats(null);   // will recompute bundle view if needed
+}
+
+function executeSelectedTasks() {
+  const bundle = getSelectedTasksArray();
+  if (!bundle.length) return;
+
+  // First real decision in this phase → start play clock
+  if (!playClockStarted && !pendingPhaseSwitch) {
+    playClockStarted = true;
+    startPlayClock();
+  }
+  maybeSwitchPhaseOnAction();
+
+  // First decision of phase unlocks bots
+  if (!botsStartedForPhase) {
+    botsStartedForPhase = true;
+    startBots();
+    logTaskEvent({
+      type: "BOTS_STARTED_FOR_PHASE",
+      phase: currentPhase,
+      trigger: "BUNDLE_ACCEPT"
+    });
+  }
+
+  logTaskEvent({
+    type: "SELECTION_EXECUTE",
+    phase: currentPhase,
+    count: bundle.length,
+    tasks: bundle
+  });
+
+  bundle.forEach((item, idx) => {
+    setTimeout(() => {
+      acceptTask(item.sev, item.taskId);
+      if (idx === bundle.length - 1) {
+        clearSelection();
+      }
+    }, idx * 1100);  // 1.1s apart to avoid cooldown conflict
+  });
+}
+
+function computeEngagedResourceStats() {
+  /**
+   * Build μ and σ for the resources currently engaged by the human.
+   * For every in progress human task, we:
+   *   - get a per task mean and std for resources
+   *   - then sum means and variances across all active tasks
+   *
+   * If we have empirical stats for that severity, we use them.
+   * If not, we derive mean and std from the configured resourceRange
+   * using a uniform distribution assumption.
+   */
+  let totalMean = 0;
+  let totalVar = 0;
+  let taskCount = 0;
+
+  for (const sev of severities) {
+    // All human tasks that are currently active
+    const cells = activeTasks[sev].filter(
+      c =>
+        c.task &&
+        c.task.status === "in-progress" &&
+        c.task.claimedBy === "human"
+    );
+
+    if (!cells.length) continue;
+
+    const sevStats = banditState.stats[sev].resources;
+    let perTaskMean;
+    let perTaskStd;
+
+    if (sevStats.n > 0) {
+      // Use learned distribution for that severity
+      perTaskMean = sevStats.mean;
+      perTaskStd  = sevStats.std;
+    } else {
+      // No data yet: fall back to config ranges for this phase and agent
+      const ap = getActiveParam(sev, "human");
+      let rMin, rMax;
+
+      if (ap && ap.resourceRange) {
+        [rMin, rMax] = ap.resourceRange;
+      } else {
+        const [fmin, fmax] = taskParameters[sev].resourceRange;
+        rMin = fmin;
+        rMax = fmax;
+      }
+
+      perTaskMean = (rMin + rMax) / 2;
+      const range = rMax - rMin;
+
+      // Uniform range approximation for std so there is a real band
+      perTaskStd = range > 0 ? range / Math.sqrt(12) : 0;
+    }
+
+    const nSevTasks = cells.length;
+
+    totalMean += nSevTasks * perTaskMean;
+    totalVar  += nSevTasks * (perTaskStd * perTaskStd);
+    taskCount += nSevTasks;
+  }
+
+  const std = taskCount > 0 ? Math.sqrt(totalVar) : 0;
+  return { n: taskCount, mean: totalMean, std };
+}
+
+
+
+function renderBundleStats(panel) {
+  const ids = Object.keys(selectedTasks);
+  if (!ids.length) {
+    panel.innerHTML = "";
     return;
   }
 
-  // skip over any invalid / non-pending task
-  while (recQueue.length > 0) {
-    const rec = recQueue[0];
-    const cell = activeTasks[rec.sev].find(c => c.task?.id === rec.taskId && c.task.status === "pending");
-    if (cell) {
-      const task = cell.task;
+  let totalRewardMean = 0;
+  let totalRewardVar  = 0;
+  let totalResMean    = 0;
+  let totalResVar     = 0;
 
-      const div = document.createElement("div");
-      div.classList.add("task-card");
-      div.style.border = "3px solid green";
-      div.innerHTML = `
-        <div class="task-info">
-          🔥 <b>${task.id}</b> | Type: ${rec.sev}
-        </div>
-        <div class="task-buttons">
-          <button onclick="acceptTask('${rec.sev}', '${task.id}')">Accept</button>
-          <button onclick="rejectTask('${rec.sev}', '${task.id}')">Reject</button>
-        </div>
-      `;
-      container.appendChild(div);
+  ids.forEach(id => {
+    const { sev } = selectedTasks[id];
+    const sevStats = banditState.stats[sev];
+    const preview  = estimatePendingValues(sev, "human");
 
-      setText("recommendation", `🔥 ${task.id} | Type: ${rec.sev}`);
-renderRecStats(rec);    // NEW
-
-      return;
+    // Reward
+    let rMean = preview.reward;
+    let rStd  = 0;
+    if (sevStats.reward.n > 0) {
+      rMean = sevStats.reward.mean;
+      rStd  = sevStats.reward.std;
     }
-    // drop invalid entry and continue
-    recQueue.shift();
-  }
 
-  // if everything was invalid, rebuild
-  computeRecommendationQueue();
-  renderRecommendations();
-  return;
+    // Resources
+    let resMean = preview.resourcesNeed;
+    let resStd  = 0;
+    if (sevStats.resources.n > 0) {
+      resMean = sevStats.resources.mean;
+      resStd  = sevStats.resources.std;
+    }
+
+    totalRewardMean += rMean;
+    totalRewardVar  += rStd * rStd;
+    totalResMean    += resMean;
+    totalResVar     += resStd * resStd;
+  });
+
+  const bundleRewardStd = Math.sqrt(totalRewardVar);
+  const bundleResStd    = Math.sqrt(totalResVar);
+
+  // Reward normalization: sum of per-task max rewards
+  let rewardUpper = 0;
+  ids.forEach(id => {
+    const { sev } = selectedTasks[id];
+    rewardUpper += getRewardMax(sev) || 0;
+  });
+  if (rewardUpper <= 0) rewardUpper = totalRewardMean || 1;
+
+  const rMeanNorm   = Math.min(1, Math.max(0, totalRewardMean / rewardUpper));
+  const rStdNorm    = Math.min(1, Math.max(0, bundleRewardStd / rewardUpper));
+  const rPatchStart = Math.max(0, rMeanNorm - rStdNorm);
+  const rPatchEnd   = Math.min(1, rMeanNorm + rStdNorm);
+
+  // Resource scale: based on capacity and projected use
+  const currentUse = human.engaged;
+  const projected  = currentUse + totalResMean;
+  const capacity   = human.capacity || 1;
+  const overflow   = Math.max(0, projected - capacity);
+  const maxScale   = Math.max(capacity, projected) * 1.1;
+
+  const currentNorm = currentUse / maxScale;
+  const postNorm    = projected / maxScale;
+  const capNorm     = capacity / maxScale;
+
+  const resPatchStart = currentNorm;
+  const resPatchEnd   = postNorm;
+
+  // 🔹 NEW: engaged resources μ ± σ band
+  const engagedStats = computeEngagedResourceStats();
+  const engagedMean  = engagedStats.n > 0 ? engagedStats.mean : currentUse;
+  const engagedStd   = engagedStats.n > 0 ? engagedStats.std  : 0;
+
+  const engagedMeanNorm  = Math.min(1, Math.max(0, engagedMean / maxScale));
+  const engagedStdNorm   = Math.min(1, Math.max(0, engagedStd  / maxScale));
+  const engagedPatchStart = Math.max(0, engagedMeanNorm - engagedStdNorm);
+  const engagedPatchEnd   = Math.min(1, engagedMeanNorm + engagedStdNorm);
+
+  panel.innerHTML = `
+    <!-- Bundle Reward bar -->
+    <div class="tbar-wrapper"
+         style="
+           --mean: ${rMeanNorm * 100};
+           --patch-start: ${rPatchStart * 100};
+           --patch-end: ${rPatchEnd * 100};
+         ">
+      <div class="tbar-header">
+        <div class="tbar-title">Bundle reward estimate (${ids.length} tasks)</div>
+        <div class="tbar-meta">
+          μ ≈ ${totalRewardMean.toFixed(1)},
+          σ ≈ ${bundleRewardStd.toFixed(1)},
+          max ≈ ${rewardUpper.toFixed(1)}
+        </div>
+      </div>
+
+      <div class="tbar">
+        <div class="tbar-patch"></div>
+        <div class="tbar-mean"></div>
+      </div>
+
+      <div class="tbar-footer">
+        <span>Lower total reward</span>
+        <span>Higher total reward</span>
+      </div>
+    </div>
+
+    <!-- Bundle Resource bar -->
+    <div class="tbar-wrapper tbar-resources"
+         style="
+           --patch-start: ${resPatchStart * 100};
+           --patch-end: ${resPatchEnd * 100};
+           --mean: ${postNorm * 100};
+           --current: ${currentNorm * 100};
+           --limit: ${capNorm * 100};
+         ">
+      <div class="tbar-header">
+        <div class="tbar-title">Bundle resource impact</div>
+        <div class="tbar-meta">
+          Current: ${currentUse.toFixed(1)} &nbsp;|&nbsp;
+          +Bundle: ${totalResMean.toFixed(1)} &nbsp;|&nbsp;
+          Capacity: ${capacity.toFixed(1)}
+        </div>
+      </div>
+
+      <div class="tbar">
+        <div class="tbar-patch"></div>
+        <div class="tbar-current"></div>
+        <div class="tbar-mean"></div>
+        <div class="tbar-limit"></div>
+      </div>
+
+      <div class="tbar-footer">
+        <span>0</span>
+        <span>Capacity + margin</span>
+      </div>
+
+      <div class="tbar-legend">
+        <span class="tbar-legend-item">
+          <span class="tbar-legend-swatch current"></span> Current usage
+        </span>
+        <span class="tbar-legend-item">
+          <span class="tbar-legend-swatch patch"></span> Added usage (bundle)
+        </span>
+        <span class="tbar-legend-item">
+          <span class="tbar-legend-swatch mean"></span> Projected total
+        </span>
+        <span class="tbar-legend-item">
+          <span class="tbar-legend-swatch limit"></span> Capacity limit
+        </span>
+        ${overflow > 0 ? `
+        <span class="tbar-legend-item" style="color:#d32f2f;">
+          Overflow: ${overflow.toFixed(1)} units
+        </span>` : ""}
+      </div>
+    </div>
+
+    <!-- 🔹 NEW: Engaged resources μ ± σ bar -->
+    <div class="tbar-wrapper tbar-engaged"
+         style="
+           --mean: ${engagedMeanNorm * 100};
+           --patch-start: ${engagedPatchStart * 100};
+           --patch-end: ${engagedPatchEnd * 100};
+         ">
+      <div class="tbar-header">
+        <div class="tbar-title">Currently engaged resources (estimate)</div>
+        <div class="tbar-meta">
+          μ ≈ ${engagedMean.toFixed(1)},
+          σ ≈ ${engagedStd.toFixed(1)},
+          tasks ≈ ${engagedStats.n}
+        </div>
+      </div>
+
+      <div class="tbar">
+        <div class="tbar-patch"></div>
+        <div class="tbar-mean"></div>
+      </div>
+
+      <div class="tbar-footer">
+        <span>Lower engaged load</span>
+        <span>Higher engaged load</span>
+      </div>
+    </div>
+  `;
 }
+
 
 function renderRecStats(rec) {
   const panel = document.getElementById("rec-stats-panel");
   if (!panel) return;
 
-  // No recommendation → clear panel
+  // Benchmark phase + selection → show bundle stats
+  if (currentPhase === "benchmark" && Object.keys(selectedTasks).length > 0) {
+    renderBundleStats(panel);
+    return;
+  }
+
   if (!rec || !rec.sev) {
-    panel.innerHTML = "";
+    panel.innerHTML = `
+      <div class="tbar-wrapper">
+        <div class="tbar-header">
+          <div class="tbar-title">Estimates will appear here</div>
+        </div>
+        <div style="font-size:12px;color:#555;margin-top:4px;">
+          Complete at least one H task to see the reward and resource bars.
+        </div>
+      </div>
+    `;
     return;
   }
 
   const sev = rec.sev;
-  const rewardStats = banditState.stats[sev]?.reward;
+  const sevStats = banditState.stats[sev];
 
-  // If no data yet, show a soft hint
-  if (!rewardStats || rewardStats.n === 0) {
+  if (!sevStats) {
+    panel.innerHTML = "";
+    return;
+  }
+
+  const rewardStats   = sevStats.reward;
+  const resourceStats = sevStats.resources;
+
+  if (!rewardStats || rewardStats.n === 0 || !resourceStats || resourceStats.n === 0) {
     panel.innerHTML = `
       <div class="tbar-wrapper">
         <div class="tbar-header">
-          <div class="tbar-title">Estimate will appear here</div>
+          <div class="tbar-title">Estimates will appear here</div>
         </div>
         <div style="font-size:12px;color:#555;margin-top:4px;">
-          Complete at least one ${sev} task to see the estimate bar.
+          Complete at least one ${sev} task to see the reward and resource bars.
         </div>
       </div>
     `;
@@ -1526,28 +1825,28 @@ function renderRecStats(rec) {
   }
 
   const maxReward = getRewardMax(sev) || 1;
+  const rMeanNorm = Math.min(1, Math.max(0, rewardStats.mean / maxReward));
+  const rStdNorm  = Math.min(1, Math.max(0, rewardStats.std  / maxReward));
+  const rPatchStart = Math.max(0, rMeanNorm - rStdNorm);
+  const rPatchEnd   = Math.min(1, rMeanNorm + rStdNorm);
 
-  // Normalize mean and std to [0, 1]
-  const meanNorm = Math.min(1, Math.max(0, rewardStats.mean / maxReward));
-  const stdNorm  = Math.min(1, Math.max(0, rewardStats.std / maxReward));
-
-  // Patch = mean ± std, clamped
-  const patchStart = Math.max(0, meanNorm - stdNorm);
-  const patchEnd   = Math.min(1, meanNorm + stdNorm);
-
-  // Optional extra marker reserved for later
-  const extraMarker = null; // e.g., some threshold later
+  const ap          = getActiveParam(sev, "human");
+  const maxResource = (ap?.resourceRange && ap.resourceRange[1]) || human.capacity || 1;
+  const resMeanNorm = Math.min(1, Math.max(0, resourceStats.mean / maxResource));
+  const resStdNorm  = Math.min(1, Math.max(0, resourceStats.std  / maxResource));
+  const resPatchStart = Math.max(0, resMeanNorm - resStdNorm);
+  const resPatchEnd   = Math.min(1, resMeanNorm + resStdNorm);
 
   panel.innerHTML = `
+    <!-- Reward bar -->
     <div class="tbar-wrapper"
          style="
-           --mean: ${meanNorm * 100};
-           --patch-start: ${patchStart * 100};
-           --patch-end: ${patchEnd * 100};
-           ${extraMarker !== null ? `--extra: ${extraMarker * 100};` : ""}
+           --mean: ${rMeanNorm * 100};
+           --patch-start: ${rPatchStart * 100};
+           --patch-end: ${rPatchEnd * 100};
          ">
       <div class="tbar-header">
-        <div class="tbar-title">Current estimate: ${sev}-task</div>
+        <div class="tbar-title">Reward estimate for ${sev} task</div>
         <div class="tbar-meta">
           μ = ${rewardStats.mean.toFixed(1)},
           σ = ${rewardStats.std.toFixed(1)},
@@ -1558,12 +1857,38 @@ function renderRecStats(rec) {
       <div class="tbar">
         <div class="tbar-patch"></div>
         <div class="tbar-mean"></div>
-        ${extraMarker !== null ? `<div class="tbar-extra"></div>` : ""}
       </div>
 
       <div class="tbar-footer">
         <span>Lower expected reward</span>
         <span>Higher expected reward</span>
+      </div>
+    </div>
+
+    <!-- Resource bar -->
+    <div class="tbar-wrapper"
+         style="
+           --mean: ${resMeanNorm * 100};
+           --patch-start: ${resPatchStart * 100};
+           --patch-end: ${resPatchEnd * 100};
+         ">
+      <div class="tbar-header">
+        <div class="tbar-title">Resource use estimate for ${sev} task</div>
+        <div class="tbar-meta">
+          μ = ${resourceStats.mean.toFixed(1)},
+          σ = ${resourceStats.std.toFixed(1)},
+          max ≈ ${maxResource}
+        </div>
+      </div>
+
+      <div class="tbar">
+        <div class="tbar-patch"></div>
+        <div class="tbar-mean"></div>
+      </div>
+
+      <div class="tbar-footer">
+        <span>Lower resource need</span>
+        <span>Higher resource need</span>
       </div>
 
       <div class="tbar-legend">
@@ -1573,96 +1898,143 @@ function renderRecStats(rec) {
         <span class="tbar-legend-item">
           <span class="tbar-legend-swatch mean"></span> Mean
         </span>
-        <span class="tbar-legend-item">
-          <span class="tbar-legend-swatch extra"></span> Reserved marker
-        </span>
       </div>
     </div>
   `;
 }
 
+function renderRecommendations() {
+  const container = document.getElementById("task-recommendations");
+  if (!container) return;
+  container.innerHTML = "";
 
-
-
-// Bar builder
-function buildBar(label, mean, std, max) {
-  const lo = Math.max(0, mean - std);
-  const hi = Math.min(max, mean + std);
-  const pctMean = (mean / max) * 100;
-  const pctLo   = (lo / max)   * 100;
-  const pctHi   = (hi / max)   * 100;
-
-  return `
-    <div class="rec-metric-block">
-      <div class="rec-bar-label"><b>${label}</b>: ${mean.toFixed(1)} ± ${std.toFixed(1)}</div>
-      <div class="rec-bar-container">
-        <div class="rec-bar-fill" style="width:${pctMean}%;"></div>
-        <div class="rec-bar-range" style="
-          left:${pctLo}%;
-          width:${pctHi - pctLo}%"></div>
-      </div>
-    </div>
-  `;
-}
-
-
-  // ----------------------------
-  // Benchmark phase: 3 cards (H, M, L)
-  // ----------------------------
-  if (currentPhase === "benchmark") {
-    const rec = recommendTask();
-    if (!rec) {
+  // LEARNING PHASE: single sorted queue
+  if (currentPhase === "learning") {
+    if (recQueue.length === 0) computeRecommendationQueue();
+    if (recQueue.length === 0) {
       setText("recommendation", "–");
       return;
     }
-    if (!Object.values(rec).some(c => !!c)) {
+
+    while (recQueue.length > 0) {
+      const rec = recQueue[0];
+      const cell = activeTasks[rec.sev].find(
+        c => c.task?.id === rec.taskId && c.task.status === "pending"
+      );
+      if (cell) {
+        const task = cell.task;
+        const div = document.createElement("div");
+        div.classList.add("task-card");
+        div.style.border = "3px solid green";
+        div.innerHTML = `
+          <div class="task-info">
+            🔥 <b>${task.id}</b> | Type: ${rec.sev}
+          </div>
+          <div class="task-buttons">
+            <button onclick="acceptTask('${rec.sev}', '${task.id}')">Accept</button>
+            <button onclick="rejectTask('${rec.sev}', '${task.id}')">Reject</button>
+          </div>
+        `;
+        container.appendChild(div);
+
+        setText("recommendation", `🔥 ${task.id} | Type: ${rec.sev}`);
+        renderRecStats(rec);
+        return;
+      }
+      recQueue.shift();
+    }
+
+    computeRecommendationQueue();
+    renderRecommendations();
+    return;
+  }
+
+  // BENCHMARK PHASE: three cards + bundle controls
+  if (currentPhase === "benchmark") {
+    const rec = recommendTask();
+    if (!rec || !Object.values(rec).some(c => !!c)) {
       setText("recommendation", "–");
+      renderRecStats(null);
       return;
     }
 
     const recSummary = [];
+
     for (const sev of severities) {
       const cell = rec[sev];
-      if (!cell) continue;
+      if (!cell || !cell.task) continue;
       const task = cell.task;
+      const isSelected = !!selectedTasks[task.id];
 
       recSummary.push(`${sev}:${task.id}`);
 
       const div = document.createElement("div");
       div.classList.add("task-card");
-      div.style.border = "2px solid green";
+      if (isSelected) div.classList.add("task-selected");
+
       div.innerHTML = `
         <div class="task-info">
           🔥 <b>${task.id}</b> | Type: ${sev}
         </div>
         <div class="task-buttons">
-          <button onclick="acceptTask('${sev}', '${task.id}')">Accept</button>
+          <button onclick="toggleSelectTask('${sev}', '${task.id}')">
+            ${isSelected ? "Remove" : "Add"}
+          </button>
         </div>
       `;
       container.appendChild(div);
 
-      // ⏱️ Auto-assign to best bot if not accepted in 3s
-      // ⏱️ Auto-assign to best bot if not accepted in 3s,
-// but only after bots are unlocked by the first human decision.
-    setTimeout(() => {
-      if (!botsStartedForPhase) return; // gate auto-assign too
-      if (task.status === "pending" && currentPhase === "benchmark") {
-        assignTaskToBestBot(cell, true);
-      }
-    }, 3000);
-
+      // Auto-assign to bots after 3 s if not in cart
+      setTimeout(() => {
+        if (!botsStartedForPhase) return;
+        if (selectedTasks[task.id]) return;
+        if (task.status === "pending" && currentPhase === "benchmark") {
+          assignTaskToBestBot(cell, true);
+        }
+      }, 3000);
     }
 
-    // update control panel summary
+    const selectedCount = Object.keys(selectedTasks).length;
+    if (selectedCount > 0) {
+      const bundleDiv = document.createElement("div");
+      bundleDiv.classList.add("bundle-controls");
+      bundleDiv.innerHTML = `
+        <div class="bundle-summary">
+          Selected tasks: <b>${selectedCount}</b>
+        </div>
+        <div class="bundle-buttons">
+          <button onclick="executeSelectedTasks()">Execute selected</button>
+          <button onclick="clearSelection()">Clear</button>
+        </div>
+      `;
+      container.appendChild(bundleDiv);
+    }
+
     setText("recommendation", recSummary.join(" | "));
+
     const first = Object.values(rec).find(x => x);
-if (first) {
-  const fakeRec = { sev: first.severity };
-  renderRecStats(fakeRec);
+    if (first) {
+      const fakeRec = { sev: first.severity || first.sev || severities[0] };
+      renderRecStats(fakeRec);
+    } else {
+      renderRecStats(null);
+    }
+
+    return;
+  }
+
+  // Any other phase fallback
+  setText("recommendation", "–");
+  renderRecStats(null);
 }
 
-  }
-}
+
+
+
+
+
+
+
 
 
 
@@ -2349,3 +2721,6 @@ window.endExperiment = endExperiment;
 window.acknowledgePhaseChange = acknowledgePhaseChange;
 window.acceptTask = acceptTask;
 window.rejectTask = rejectTask;
+window.toggleSelectTask = toggleSelectTask;
+window.executeSelectedTasks = executeSelectedTasks;
+window.clearSelection = clearSelection;
