@@ -71,6 +71,7 @@ body {
   font-size: 10px;
 }
 
+/* severity classes if you use them */
 .cell.subtask-H { background: #E6E6FA; }
 .cell.subtask-M { background: #D0F0C0; }
 .cell.subtask-L { background: #FFDAB9; }
@@ -128,6 +129,7 @@ body {
   display: flex;
   gap: 4px;
 }
+
 .task-buttons button {
   padding: 2px 6px;
   font-size: 11px;
@@ -136,6 +138,7 @@ body {
   border: 1px solid #aaa;
   background: #eee;
 }
+
 .task-buttons button:hover {
   background: #ddd;
 }
@@ -149,9 +152,11 @@ body {
 .agent-left {
   flex: 1;
 }
+
 .agent-right {
   flex: 1;
 }
+
 .agent-right h4 {
   margin: 4px 0;
 }
@@ -168,11 +173,14 @@ body {
   width: 100%;
   border-collapse: collapse;
 }
-.bot-table th, .bot-table td {
+
+.bot-table th,
+.bot-table td {
   border: 1px solid #ccc;
   padding: 4px 6px;
   font-size: 12px;
 }
+
 .bot-table th {
   background: #f2f2f2;
 }
@@ -185,11 +193,21 @@ body {
 }
 
 .modal {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.6); display: flex;
-  justify-content: center; align-items: center;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
-.modal.hidden { display: none; }
+
+.modal.hidden {
+  display: none;
+}
+
 .modal-content {
   background: #fff;
   padding: 20px;
@@ -220,11 +238,156 @@ body {
   font-size: 12px;
   border-collapse: collapse;
 }
-.insight-table th, .insight-table td {
+
+.insight-table th,
+.insight-table td {
   border: 1px solid rgba(0,0,0,0.2);
   padding: 2px 4px;
   text-align: center;
 }
+
 .insight-table th {
   background: rgba(255,255,255,0.6);
 }
+
+/* old rec bar styles (no longer used for confidence but harmless to keep) */
+.rec-metric-block {
+  margin-bottom: 12px;
+}
+
+.rec-bar-label {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.rec-bar-container {
+  position: relative;
+  height: 18px;
+  background: #eee;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rec-bar-fill {
+  height: 100%;
+  background: #76a5ff;
+  opacity: 0.85;
+}
+
+.rec-bar-range {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(0,0,0,0.15);
+}
+
+/* ========================= */
+/* T BAR CONFIDENCE BLOCK    */
+/* ========================= */
+
+.tbar-wrapper {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.tbar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.tbar-title {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.tbar-meta {
+  font-size: 11px;
+  color: #555;
+}
+
+.tbar {
+  position: relative;
+  width: 100%;
+  height: 16px;
+  background: #e5e5e5;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+/* Uncertainty patch: mean +/- std (or any interval) */
+.tbar-patch {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--patch-start, 30) * 1%);
+  width: calc((var(--patch-end, 60) - var(--patch-start, 30)) * 1%);
+  background: rgba(118, 165, 255, 0.35);
+}
+
+/* Mean indicator */
+.tbar-mean {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  left: calc(var(--mean, 50) * 1%);
+  background: #111;
+}
+
+/* Confidence marker (T bar) */
+.tbar-confidence {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  left: calc(var(--confidence, 70) * 1%);
+  background: #4caf50;
+}
+
+/* Optional extra marker for future use */
+.tbar-extra {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  left: calc(var(--extra, 85) * 1%);
+  background: #ff5722;
+}
+
+.tbar-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #666;
+}
+
+/* optional legend if you want to show it under the bar */
+.tbar-legend {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: #555;
+  flex-wrap: wrap;
+}
+
+.tbar-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tbar-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #000;
+}
+
+.tbar-legend-swatch.mean    { background: #111; }
+.tbar-legend-swatch.patch   { background: rgba(118, 165, 255, 0.8); }
+.tbar-legend-swatch.conf    { background: #4caf50; }
+.tbar-legend-swatch.extra   { background: #ff5722; }

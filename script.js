@@ -243,6 +243,8 @@ let humanScore = 0, bot1Score = 0, bot2Score = 0;
 
 let experimentStartTime = null, experimentEndTime = null, experimentTimer = null, elapsedSeconds = 0;
 
+let isTestMode = false;
+
 /******************************************************
  * PHASE / CLOCK STATE
  ******************************************************/
@@ -837,21 +839,23 @@ function acceptTask(sev, taskId) {
   // Start the human’s task
   startTaskForHuman(cell);
 
-  // ✅ First acceptance in this phase → now we let the bots start working
+  // First human decision in this phase → start bots
   if (!botsStartedForPhase) {
     botsStartedForPhase = true;
     startBots();
     logTaskEvent({
       type: "BOTS_STARTED_FOR_PHASE",
-      phase: currentPhase
+      phase: currentPhase,
+      trigger: "ACCEPT"
     });
   }
 
-  // 🔄 Reset queue completely & recompute based on updated preferences
+  // Reset queue and recompute
   recQueue = [];
   computeRecommendationQueue();
   renderRecommendations();
 }
+
 
 function rejectTask(sev, taskId) {
   if (actionCooldown) return;
@@ -863,6 +867,17 @@ function rejectTask(sev, taskId) {
     startPlayClock();
   }
   maybeSwitchPhaseOnAction();
+
+  // First human decision in this phase → start bots
+  if (!botsStartedForPhase) {
+    botsStartedForPhase = true;
+    startBots();
+    logTaskEvent({
+      type: "BOTS_STARTED_FOR_PHASE",
+      phase: currentPhase,
+      trigger: "REJECT"
+    });
+  }
 
   // --------------------------
   // LEARNING PHASE
@@ -878,16 +893,12 @@ function rejectTask(sev, taskId) {
   // SELECTIVE PHASE
   // --------------------------
   else if (currentPhase === "selective") {
-    // Do nothing—skip all updates—but still ensure next recommendation
     console.log(`Selective phase: rejection of ${taskId} ignored (no bandit update).`);
 
     recQueue = recQueue.filter(r => r.taskId !== taskId);
 
-    // If the queue is now empty, rebuild manually
     if (recQueue.length === 0) {
       computeRecommendationQueue();
-
-      // If still empty (e.g. compute returned nothing new), pick directly
       if (recQueue.length === 0) {
         const next = recommendTask();
         if (next) recQueue.push(next);
@@ -907,14 +918,42 @@ function rejectTask(sev, taskId) {
     logHumanTask(taskId, "Rejected");
   }
 
-  // --------------------------
-  // Common UI updates for non-selective
-  // --------------------------
+  // Common UI updates
   recQueue = recQueue.filter(r => r.taskId !== taskId);
   if (recQueue.length === 0) computeRecommendationQueue();
   renderRecommendations();
 }
 
+
+function launchTestModeSelector() {
+  const modal = document.createElement("div");
+  modal.id = "test-mode-modal";
+  Object.assign(modal.style, {
+    position: "fixed",
+    inset: "0",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    background: "rgba(0,0,0,0.6)",
+    zIndex: "20000"
+  });
+
+  modal.innerHTML = `
+    <div style="background:#fff;padding:20px;border-radius:12px;width:320px;text-align:center">
+      <h2>Test Mode</h2>
+      <p>Select a phase to test:</p>
+      <button id="test-learning" style="margin:8px;padding:8px 12px">Learning</button>
+      <button id="test-benchmark" style="margin:8px;padding:8px 12px">Benchmark</button>
+      <button id="test-selective" style="margin:8px;padding:8px 12px">Selective</button>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  document.getElementById("test-learning").onclick = () => startTestPhase("learning");
+  document.getElementById("test-benchmark").onclick = () => startTestPhase("benchmark");
+  document.getElementById("test-selective").onclick = () => startTestPhase("selective");
+}
 
 
 
@@ -1277,6 +1316,8 @@ function hideModal(){ const m=document.getElementById("phase-modal"); if (m) m.s
  ******************************************************/
 // --- REPLACE setupPhaseOrder() ---
 function setupPhaseOrder() {
+  if (isTestMode) return;   // 🔥 STEP 5 HERE
+
   // Derive a stable numeric key from participant ID
   const pid = experimentLog.participantId || "ANON";
   const asciiSum = pid.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
@@ -1316,7 +1357,9 @@ function showPhaseModal() {
 }
 
 function acknowledgePhaseChange(){ hideModal(); phaseAcknowledged = true; logTaskEvent({ type:"PHASE_ACKNOWLEDGED" }); }
-function maybeSwitchPhaseOnAction(){
+function maybeSwitchPhaseOnAction() {
+  if (isTestMode) return;   // 🔥 STEP 5 HERE
+
   if (pendingPhaseSwitch && phaseAcknowledged) {
     activePhaseIndex++; 
     currentPhase = phaseOrder[activePhaseIndex];
@@ -1440,6 +1483,8 @@ function renderRecommendations() {
       container.appendChild(div);
 
       setText("recommendation", `🔥 ${task.id} | Type: ${rec.sev}`);
+renderRecStats(rec);    // NEW
+
       return;
     }
     // drop invalid entry and continue
@@ -1450,6 +1495,114 @@ function renderRecommendations() {
   computeRecommendationQueue();
   renderRecommendations();
   return;
+}
+
+function renderRecStats(rec) {
+  const panel = document.getElementById("rec-stats-panel");
+  if (!panel) return;
+
+  // No recommendation → clear panel
+  if (!rec || !rec.sev) {
+    panel.innerHTML = "";
+    return;
+  }
+
+  const sev = rec.sev;
+  const rewardStats = banditState.stats[sev]?.reward;
+
+  // If no data yet, show a soft hint
+  if (!rewardStats || rewardStats.n === 0) {
+    panel.innerHTML = `
+      <div class="tbar-wrapper">
+        <div class="tbar-header">
+          <div class="tbar-title">Estimate will appear here</div>
+        </div>
+        <div style="font-size:12px;color:#555;margin-top:4px;">
+          Complete at least one ${sev} task to see the estimate bar.
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const maxReward = getRewardMax(sev) || 1;
+
+  // Normalize mean and std to [0, 1]
+  const meanNorm = Math.min(1, Math.max(0, rewardStats.mean / maxReward));
+  const stdNorm  = Math.min(1, Math.max(0, rewardStats.std / maxReward));
+
+  // Patch = mean ± std, clamped
+  const patchStart = Math.max(0, meanNorm - stdNorm);
+  const patchEnd   = Math.min(1, meanNorm + stdNorm);
+
+  // Optional extra marker reserved for later
+  const extraMarker = null; // e.g., some threshold later
+
+  panel.innerHTML = `
+    <div class="tbar-wrapper"
+         style="
+           --mean: ${meanNorm * 100};
+           --patch-start: ${patchStart * 100};
+           --patch-end: ${patchEnd * 100};
+           ${extraMarker !== null ? `--extra: ${extraMarker * 100};` : ""}
+         ">
+      <div class="tbar-header">
+        <div class="tbar-title">Current estimate: ${sev}-task</div>
+        <div class="tbar-meta">
+          μ = ${rewardStats.mean.toFixed(1)},
+          σ = ${rewardStats.std.toFixed(1)},
+          max ≈ ${maxReward}
+        </div>
+      </div>
+
+      <div class="tbar">
+        <div class="tbar-patch"></div>
+        <div class="tbar-mean"></div>
+        ${extraMarker !== null ? `<div class="tbar-extra"></div>` : ""}
+      </div>
+
+      <div class="tbar-footer">
+        <span>Lower expected reward</span>
+        <span>Higher expected reward</span>
+      </div>
+
+      <div class="tbar-legend">
+        <span class="tbar-legend-item">
+          <span class="tbar-legend-swatch patch"></span> Uncertainty band (μ ± σ)
+        </span>
+        <span class="tbar-legend-item">
+          <span class="tbar-legend-swatch mean"></span> Mean
+        </span>
+        <span class="tbar-legend-item">
+          <span class="tbar-legend-swatch extra"></span> Reserved marker
+        </span>
+      </div>
+    </div>
+  `;
+}
+
+
+
+
+// Bar builder
+function buildBar(label, mean, std, max) {
+  const lo = Math.max(0, mean - std);
+  const hi = Math.min(max, mean + std);
+  const pctMean = (mean / max) * 100;
+  const pctLo   = (lo / max)   * 100;
+  const pctHi   = (hi / max)   * 100;
+
+  return `
+    <div class="rec-metric-block">
+      <div class="rec-bar-label"><b>${label}</b>: ${mean.toFixed(1)} ± ${std.toFixed(1)}</div>
+      <div class="rec-bar-container">
+        <div class="rec-bar-fill" style="width:${pctMean}%;"></div>
+        <div class="rec-bar-range" style="
+          left:${pctLo}%;
+          width:${pctHi - pctLo}%"></div>
+      </div>
+    </div>
+  `;
 }
 
 
@@ -1489,15 +1642,25 @@ function renderRecommendations() {
       container.appendChild(div);
 
       // ⏱️ Auto-assign to best bot if not accepted in 3s
-      setTimeout(() => {
-        if (task.status === "pending" && currentPhase === "benchmark") {
-          assignTaskToBestBot(cell, true); // true = auto-assign flag
-        }
-      }, 3000);
+      // ⏱️ Auto-assign to best bot if not accepted in 3s,
+// but only after bots are unlocked by the first human decision.
+    setTimeout(() => {
+      if (!botsStartedForPhase) return; // gate auto-assign too
+      if (task.status === "pending" && currentPhase === "benchmark") {
+        assignTaskToBestBot(cell, true);
+      }
+    }, 3000);
+
     }
 
     // update control panel summary
     setText("recommendation", recSummary.join(" | "));
+    const first = Object.values(rec).find(x => x);
+if (first) {
+  const fakeRec = { sev: first.severity };
+  renderRecStats(fakeRec);
+}
+
   }
 }
 
@@ -1764,7 +1927,9 @@ function renderOnboardingStep() {
     setTimeout(() => warn.remove(), 1600);
   }
 
-  // ----- survey helpers -----
+
+
+
   function renderSurveyPage(containerEl, questions, label) {
     containerEl.innerHTML = `<h2 style="margin:0 0 8px">${label}</h2>`;
     const holder = document.createElement("div");
@@ -1807,11 +1972,22 @@ function renderOnboardingStep() {
         style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px">`;
     nextBtn.onclick = () => {
       const pid = (document.getElementById("onb-pid")?.value || "").trim();
-      if (!pid) { showPopup("Please enter a Participant ID."); return; }
-      onboardingState.pid = pid;
-      experimentLog.participantId = pid;
-      logTaskEvent({ type: "ONB_PID_SET", pid });
-      goNext();
+if (!pid) { showPopup("Please enter a Participant ID."); return; }
+
+// --- TEST MODE ---
+if (pid === "test2005") {
+    isTestMode = true;
+    experimentLog.participantId = pid;
+    launchTestModeSelector();
+    return; // skip onboarding entirely
+}
+
+// --- NORMAL FLOW ---
+onboardingState.pid = pid;
+experimentLog.participantId = pid;
+logTaskEvent({ type: "ONB_PID_SET", pid });
+goNext();
+
     };
   }
 
@@ -1975,27 +2151,30 @@ function formatTime(secs){ const m=String(Math.floor(secs/60)).padStart(2,"0"); 
 function startExperiment() {
   if (experimentTimer) return;
   ensureUI();
-  experimentStartTime = new Date().toISOString(); experimentLog.startTime = experimentStartTime;
-  elapsedSeconds = 0; setText("experiment-clock", "00:00");
-  experimentTimer = setInterval(() => { elapsedSeconds++; setText("experiment-clock", formatTime(elapsedSeconds)); }, 1000);
-async function startExperiment(pid, phaseOrder) {
-  runId = `run_${Date.now()}`;
-  const runRef = doc(db, "participants", pid, "runs", runId);
 
-  await setDoc(runRef, {
-    participantId: pid,
-    runId,
-    phaseOrder,
-    startTime: serverTimestamp(),
-  });
-}
+  experimentStartTime = new Date().toISOString();
+  experimentLog.startTime = experimentStartTime;
+
+  elapsedSeconds = 0;
+  setText("experiment-clock", "00:00");
+
+  experimentTimer = setInterval(() => {
+    elapsedSeconds++;
+    setText("experiment-clock", formatTime(elapsedSeconds));
+  }, 1000);
 
   // Use phase order computed during onboarding
+  botsStartedForPhase = false; // gate bots until first decision
   logTaskEvent({ type: "PHASE_START", newPhase: currentPhase });
 
-  // Start autonomous bots
-  startBots();
+  // 🔹 NEW: make sure we have tasks and immediately show the first recommendation
+  ensureTasks();                 // guarantees at least 3 per severity
+  recQueue = [];                 // reset any stale queue created before onboarding
+  computeRecommendationQueue();  // build queue for the now-active phase
+  renderRecommendations();       // actually draw the card(s) and T-bar
 }
+
+
 
 
 /******************************************************
@@ -2042,6 +2221,8 @@ const EXIT_SURVEY_QUESTIONS = [
 ];
 
 function startExitSurvey(phaseName = currentPhase) {
+  if (isTestMode) return;   // 🔥 STEP 5 HERE
+
   stopPlayClock();
   stopBots();
   let page = 0;
@@ -2105,16 +2286,22 @@ function startExitSurvey(phaseName = currentPhase) {
   }
 
   function finalizePhaseSwitch(){
-    activePhaseIndex++;
-    currentPhase = phaseOrder[activePhaseIndex];
-    pendingPhaseSwitch = false;
-    phaseAcknowledged = false;
-    playClockStarted = true;
-    startPlayClock();
-    startBots();
-    logTaskEvent({ type: "PHASE_START", newPhase: currentPhase });
-  }
+  activePhaseIndex++;
+  currentPhase = phaseOrder[activePhaseIndex];
+  pendingPhaseSwitch = false;
+  phaseAcknowledged = false;
+  playClockStarted = true;
+
+  botsStartedForPhase = false; // reset gating for the new phase
+
+  startPlayClock();
+  // ❌ Do NOT call startBots() here.
+  // Bots will start only after the first accept/reject in this new phase.
+  logTaskEvent({ type: "PHASE_START", newPhase: currentPhase });
 }
+
+  }
+
 
 
 
