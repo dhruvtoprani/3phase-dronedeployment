@@ -1,9 +1,25 @@
 # 3-Phase Drone Deployment
 
-A curiosity-driven robotics systems experiment for exploring staged deployment, coordination, and operational planning.
+**Robotics systems prototype for staged drone deployment, coordination logic, and operational planning.**
 
-## What it shows
+<p>
+  <code>Robotics</code>
+  <code>Systems Thinking</code>
+  <code>Deployment Planning</code>
+  <code>Operations</code>
+</p>
 
-- Interest in robotics workflows and systems thinking
-- Product curiosity around how complex operations are planned
-- Willingness to turn an idea into a working technical sketch
+## Product Signal
+
+This project explores how complex robotics workflows can be broken into phases, constraints, and decision points. It reflects a PM-style approach to technical systems: understand the operational environment, define the workflow, and reason through what the system needs to support before scaling the implementation.
+
+## What I Explored
+
+- Staged deployment logic for robotics workflows
+- Coordination tradeoffs across phases of operation
+- How operational constraints shape product and system decisions
+- Turning a robotics concept into a concrete technical sketch
+
+## Why It Matters
+
+Robotics products are rarely just about the robot. They depend on planning, constraints, handoffs, and operational clarity. This prototype reflects curiosity around that full system layer.
