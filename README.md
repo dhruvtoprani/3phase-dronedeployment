@@ -1,11 +1,9 @@
 # 3-Phase Drone Deployment
 
-A robotics/simulation experiment for thinking through staged drone deployment workflows.
+A curiosity-driven robotics systems experiment for exploring staged deployment, coordination, and operational planning.
 
-## Status
+## What it shows
 
-Exploratory research prototype. This repo is useful as supporting evidence for robotics/scheduling interests, but it should not be treated as a top featured portfolio project unless it is later expanded with a clearer demo, architecture notes, and experiment results.
-
-## Positioning
-
-Keep this repo as a secondary robotics artifact. Featured portfolio space should prioritize polished systems with stronger product framing, demos, and measurable outputs.
+- Interest in robotics workflows and systems thinking
+- Product curiosity around how complex operations are planned
+- Willingness to turn an idea into a working technical sketch
